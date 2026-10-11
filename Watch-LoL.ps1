@@ -1,5 +1,5 @@
 ﻿param([int]$IntervalSeconds = 45)
-# Watch-LoL: LoL起動中は45秒ごとにCoreGuardを適用(メインスレッド固定+裏アプリ隔離)
+# Watch-LoL: LoL起動中は45秒ごとにCoreGuardを適用(メイン/サブを別物理コアへ固定+裏アプリ隔離)
 $ErrorActionPreference = 'SilentlyContinue'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $log = Join-Path $here 'watch.log'

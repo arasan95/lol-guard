@@ -1,27 +1,77 @@
-﻿param([int]$GuardSeconds = 0)
-# CoreGuard: 末尾2コアをLoL用に確保し、他のプロセスを残りのコアへ寄せる(PC汎用版)
+param([int]$GuardSeconds = 0)
+# CoreGuard: LoLのメインスレッドとサブスレッドを別々の物理コアへ固定する
 # 使い方: 1回だけ実行 / 常駐させる場合は -GuardSeconds 10
 $ErrorActionPreference = 'SilentlyContinue'
+
+# 論理CPU番号の並び順には依存せず、Windowsが返す物理コア単位のマスクを使う。
+# SMT/HTなら1物理コアに兄弟論理CPUが複数含まれるため、コア全体を予約する。
+function Get-PhysicalCoreMasks {
+    $type = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+public static class CoreTopology {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool GetLogicalProcessorInformationEx(int relationship, IntPtr buffer, ref uint returnedLength);
+
+    public static ulong[] GetCoreMasks() {
+        uint length = 0;
+        GetLogicalProcessorInformationEx(0, IntPtr.Zero, ref length);
+        if (length == 0) return new ulong[0];
+        IntPtr buffer = Marshal.AllocHGlobal((int)length);
+        try {
+            if (!GetLogicalProcessorInformationEx(0, buffer, ref length)) return new ulong[0];
+            var result = new List<ulong>();
+            int offset = 0;
+            while (offset < length) {
+                IntPtr item = IntPtr.Add(buffer, offset);
+                int size = Marshal.ReadInt32(item, 4);
+                if (size < 32) break;
+                // PROCESSOR_RELATIONSHIP.GroupMask[0].Mask
+                result.Add((ulong)Marshal.ReadInt64(item, 32));
+                offset += size;
+            }
+            return result.ToArray();
+        } finally { Marshal.FreeHGlobal(buffer); }
+    }
+}
+'@
+    try {
+        if (-not ('CoreTopology' -as [type])) { Add-Type -TypeDefinition $type }
+        return @([CoreTopology]::GetCoreMasks() | Where-Object { $_ -ne 0 })
+    } catch { return @() }
+}
+
 $LP = [Environment]::ProcessorCount
-if ($LP -lt 4) { $LP = 4 }
-$gMain = $LP - 1; $gSub = $LP - 3; $gBuf = $LP - 2  # メイン / サブ / バッファ(HT兄弟のため空ける)
-$MAIN_MASK = ([int64]1 -shl $gMain)   # メインスレッド -> 末尾コア
-$SUB_MASK = ([int64]1 -shl $gSub)     # 他LoLスレッド -> 末尾3番目(固定=フラップ防止)
-$ALL_MASK = ([int64]1 -shl $LP) - 1
-$BG_MASK = $ALL_MASK -bxor ($MAIN_MASK -bor $SUB_MASK -bor ([int64]1 -shl $gBuf))  # 裏アプリ -> 残り
-$GAME_MASK = $ALL_MASK
+$coreMasks = @(Get-PhysicalCoreMasks)
+if ($coreMasks.Count -lt 2) {
+    # API取得に失敗した場合の安全なフォールバック（従来方式）。
+    $coreMasks = @([uint64]1 -shl ($LP - 1), [uint64]1 -shl ($LP - 2), [uint64]1 -shl ($LP - 3))
+}
+$allMask = [uint64]0
+foreach ($coreMask in $coreMasks) { $allMask = $allMask -bor [uint64]$coreMask }
+$mainMask = [uint64]$coreMasks[$coreMasks.Count - 1]
+$subMask = [uint64]$coreMasks[$coreMasks.Count - 2]
+$bufferMask = if ($coreMasks.Count -ge 3) { [uint64]$coreMasks[$coreMasks.Count - 3] } else { [uint64]0 }
+$reservedMask = $mainMask -bor $subMask -bor $bufferMask
+$bgMask = $allMask -bxor $reservedMask
+$gameMask = $allMask
+
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $stateFile = Join-Path $here 'last_main.txt'
 $Exclude = @('Idle','System','Registry','smss','csrss','wininit','winlogon','services','lsass','Secure System','Memory Compression','vgc','MsMpEng','MsMpEngCP','NisSrv','spoolsv')
 
+function Format-Mask([uint64]$mask) { return ('0x{0:X}' -f $mask) }
+
 function Invoke-Sweep {
     $log = @()
-    $log += "Logical CPUs: $LP, main core: $gMain, sub core: $gSub, buffer: $gBuf"
-    # 1) LoLメインスレッド(最繁忙)のみ末尾コアに固定。サブは末尾3番目に固定
+    $log += "Logical CPUs: $LP, physical cores: $($coreMasks.Count)"
+    $log += "main physical mask: $(Format-Mask $mainMask), sub physical mask: $(Format-Mask $subMask), buffer: $(Format-Mask $bufferMask)"
     $lol = Get-Process -Name 'League of Legends' | Select-Object -First 1
     if ($lol) {
         try { $lol.PriorityClass = 'High' } catch {}
-        try { $lol.ProcessorAffinity = [IntPtr]$GAME_MASK } catch {}
+        try { $lol.ProcessorAffinity = [IntPtr]$gameMask } catch {}
         $t1 = @{}
         foreach ($th in $lol.Threads) { $t1[$th.Id] = $th.TotalProcessorTime }
         Start-Sleep -Seconds 2
@@ -45,27 +95,27 @@ function Invoke-Sweep {
                 }
                 "$($top.Id)" | Set-Content $stateFile
             } catch {}
-            try { $top.ProcessorAffinity = [IntPtr]$MAIN_MASK; $log += "LoL main TID $($top.Id) -> core $gMain OK" }
+            try { $top.ProcessorAffinity = [IntPtr]$mainMask; $log += "LoL main TID $($top.Id) -> main physical core $(Format-Mask $mainMask) OK" }
             catch { $log += "LoL main TID $($top.Id) -> FAILED" }
             $sn = 0
             foreach ($th in $lol.Threads) {
                 if ($th.Id -eq $top.Id) { continue }
-                try { $th.ProcessorAffinity = [IntPtr]$SUB_MASK; $sn++ } catch {}
+                try { $th.ProcessorAffinity = [IntPtr]$subMask; $sn++ } catch {}
             }
-            $log += "LoL sub threads -> core $gSub : $sn pinned"
+            $log += "LoL sub threads -> separate physical core $(Format-Mask $subMask): $sn pinned"
         }
     } else { $log += 'LoL not running' }
-    # 2) 裏アプリをゲーム用コア以外へ
+
     $n = 0
     foreach ($p in (Get-Process)) {
         if ($Exclude -contains $p.ProcessName) { continue }
         if ($p.ProcessName -eq 'League of Legends') { continue }
         try {
-            $aff = [int64]$p.ProcessorAffinity
-            if ($aff -ne $BG_MASK) { $p.ProcessorAffinity = [IntPtr]$BG_MASK; $n++ }
+            $aff = [uint64]$p.ProcessorAffinity
+            if ($aff -ne $bgMask) { $p.ProcessorAffinity = [IntPtr]$bgMask; $n++ }
         } catch {}
     }
-    $log += "moved $n processes off cores $gSub,$gBuf,$gMain"
+    $log += "moved $n processes off reserved LoL physical cores"
     return $log
 }
 

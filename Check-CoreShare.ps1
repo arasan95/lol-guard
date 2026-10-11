@@ -9,8 +9,6 @@ function Mask-ToCores([int64]$mask) {
 $lol = Get-Process -Name 'League of Legends' | Select-Object -First 1
 if (-not $lol) { Write-Host 'LoLが起動していません'; pause; exit }
 $LP = [Environment]::ProcessorCount
-$g1 = $LP - 2; $g2 = $LP - 1
-$MAIN_MASK = ([int64]1 -shl $g1) -bor ([int64]1 -shl $g2)
 $t1 = @{}
 foreach ($th in $lol.Threads) { $t1[$th.Id] = $th.TotalProcessorTime }
 Start-Sleep -Seconds 3
@@ -23,17 +21,12 @@ foreach ($th in $lol.Threads) {
     }
 }
 $mask = 0
-$pinned = $false
-try { $top.ProcessorAffinity = [IntPtr]$MAIN_MASK; $pinned = $true } catch {}
-if ($pinned) { $cores = @($g1, $g2) }
-else {
-    try { $mask = [int64]$top.ProcessorAffinity } catch { $mask = [int64]$lol.ProcessorAffinity }
-    $cores = Mask-ToCores $mask
-}
+try { $mask = [int64]$top.ProcessorAffinity } catch { $mask = [int64]$lol.ProcessorAffinity }
+$cores = Mask-ToCores $mask
 Write-Host ''
 Write-Host ('メインスレッド: TID {0} = {1}% (1コア=100%)' -f $top.Id, [math]::Round($topV,1))
-if ($pinned) { Write-Host ('使用コア: {0}, {1} (固定を適用しました)' -f $g1, $g2) }
-else { Write-Host ('使用コア: {0} (固定に失敗、現在の設定を表示)' -f ($cores -join ', ')) }
+Write-Host ('現在のAffinity: {0} (論理CPU)' -f ($cores -join ', '))
+Write-Host '※この診断ではAffinityを変更しません。固定はCoreGuardが行います。'
 Write-Host ''
 Write-Host '--- 同じコアを使えるアプリ(負荷順TOP10, 5秒計測) ---'
 $s1 = @{}
