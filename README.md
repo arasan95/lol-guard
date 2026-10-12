@@ -25,8 +25,3 @@ cargo build --release --manifest-path tools/lol-guard/Cargo.toml
 - LoL再起動でPID/TIDは変わるが、常駐が検出して再適用する
 - 64論理CPU超の環境は先頭64のみ対象
 - 使用は自己責任で（`--restore`／トレイ「元に戻す」で全CPUに戻せる）
-
-## 資料
-
-- `docs/LoL-CPU-Tuning-Guide.md`：仕組みと手順の解説
-- `docs/` 内の他ドキュメントも参照

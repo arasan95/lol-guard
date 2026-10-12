@@ -8,5 +8,7 @@ cores.json
 guard.log
 # legacy dev scripts (not published; the tool source is tools/lol-guard)
 scripts/legacy/
+# local docs (not published)
+/docs/
 # downloaded packages
 *.nupkg
