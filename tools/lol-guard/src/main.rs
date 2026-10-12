@@ -16,6 +16,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+use windows::Win32::Media::timeBeginPeriod;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
     MessageBoxW, MB_ICONINFORMATION, MB_OK,
@@ -72,6 +73,7 @@ fn main() {
     let (cfg_path, log_path) = base_files();
 
     let lp_log = log_path.clone();
+    let log_path2 = log_path.clone();
     std::panic::set_hook(Box::new(move |info| {
         log_line(&lp_log, &format!("PANIC: {info}"));
     }));
@@ -101,7 +103,7 @@ fn main() {
         }
         "--optimize-once" => {
             let mut cfg = config::CoresConfig::load(&cfg_path, lp);
-            let r = guard::sweep(&mut cfg, lp);
+            let r = guard::sweep(&mut cfg, lp, true);
             let _ = cfg.save(&cfg_path);
             for l in &r.lines {
                 println!("{l}");
@@ -110,10 +112,12 @@ fn main() {
             return;
         }
         "--restore" => {
-            let cfg = config::CoresConfig::load(&cfg_path, lp);
-            for l in guard::restore(&cfg, lp) {
+            let mut cfg = config::CoresConfig::load(&cfg_path, lp);
+            let lines = guard::restore(&mut cfg, lp);
+            let _ = cfg.save(&cfg_path);
+            for l in &lines {
                 println!("{l}");
-                log_line(&log_path, &l);
+                log_line(&log_path, l);
             }
             return;
         }
@@ -152,10 +156,15 @@ fn main() {
         let mut last_status = i18n::strings().status_idle.to_string();
         let mut was_running = false;
         let mut last_sweep = Instant::now() - Duration::from_secs(3600);
-        log_line(
-            &w_log,
-            &format!("tray started (LP={lp}, admin={})", engine::is_admin()),
-        );
+    let mut last_bg = Instant::now() - Duration::from_secs(3600);
+    log_line(
+        &log_path,
+        &format!("tray started (LP={lp}, admin={})", engine::is_admin()),
+    );
+    // 1ms system timer while resident (improves frame pacing; ends on exit).
+    unsafe {
+        timeBeginPeriod(1);
+    }
         win_tray::set_tip(i18n::strings().tip_idle);
         loop {
             if w_quit.load(Ordering::SeqCst) {
@@ -178,7 +187,8 @@ fn main() {
                         msgbox(i18n::strings().state_title, &last_status)
                     }
                     AppEvent::Optimize => {
-                        let r = guard::sweep(&mut cfg, lp);
+                        let r = guard::sweep(&mut cfg, lp, true);
+                        last_bg = Instant::now();
                         let _ = cfg.save(&w_cfg_path);
                         for l in &r.lines {
                             log_line(&w_log, l);
@@ -193,7 +203,9 @@ fn main() {
                         msgbox("LoL Guard", &r.lines.join("\n"));
                     }
                     AppEvent::Restore => {
-                        let lines = guard::restore(&cfg, lp);
+                        let mut rcfg = config::CoresConfig::load(&w_cfg_path, lp);
+                        let lines = guard::restore(&mut rcfg, lp);
+                        let _ = rcfg.save(&w_cfg_path);
                         for l in &lines {
                             log_line(&w_log, l);
                         }
@@ -260,7 +272,13 @@ fn main() {
                 last_sweep = Instant::now();
                 let found = engine::find_process("League of Legends.exe").is_some();
                 if found {
-                    let r = guard::sweep(&mut cfg, lp);
+                    // Full background sweep at most every ~3 minutes;
+                    // LoL pins are skipped when already applied.
+                    let full_bg = last_bg.elapsed() >= Duration::from_secs(180);
+                    if full_bg {
+                        last_bg = Instant::now();
+                    }
+                    let r = guard::sweep(&mut cfg, lp, full_bg);
                     let _ = cfg.save(&w_cfg_path);
                     for l in &r.lines {
                         log_line(&w_log, l);
@@ -285,7 +303,7 @@ fn main() {
     match win_tray::create(cfg_path, lp, "LoL Guard") {
         Some(_) => win_tray::pump(),
         None => {
-            log_line(&log_path, "tray icon creation failed");
+            log_line(&log_path2, "tray icon creation failed");
             msgbox("LoL Guard", i18n::strings().tray_fail);
         }
     }

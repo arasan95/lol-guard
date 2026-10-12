@@ -26,6 +26,8 @@ Building from source is only needed for developers (see below).
 - Other apps → moved to the remaining cores (off the game cores)
 - While LoL runs, it re-applies every 45 seconds (follows PID/TID changes)
 - "Open settings" changes the core assignment; "Register autostart" enables admin residency at logon
+- Extra dedication (on by default): main thread priority Highest, moved background processes BelowNormal, High Performance power plan, 1ms system timer
+- Optional: Game DVR disable via `game_dvr_off` in the config file
 
 ## Build
 

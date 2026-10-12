@@ -96,8 +96,7 @@ fn apply_from_dialog(st: &DlgState) -> Result<String, String> {
         main,
         sub,
         buffers: buf,
-        interval_secs: old.interval_secs,
-        last_tid: old.last_tid,
+        ..old
     };
     if let Some(w) = cfg.sanitize(st.lp) {
         let tx = i18n::strings();
@@ -139,8 +138,9 @@ unsafe extern "system" fn dlg_proc(
             } else if id == ID_RESTORE {
                 if let Some(p) = state_of(hwnd) {
                     unsafe {
-                        let cfg = CoresConfig::load(&(*p).cfg_path, (*p).lp);
-                        let lines = guard::restore(&cfg, (*p).lp);
+                        let mut rcfg = CoresConfig::load(&(*p).cfg_path, (*p).lp);
+                        let lines = guard::restore(&mut rcfg, (*p).lp);
+                        let _ = rcfg.save(&(*p).cfg_path);
                         for x in &lines {
                             log_line(&(*p).log_path, x);
                         }

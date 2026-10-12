@@ -1,5 +1,6 @@
 //! Low-level Win32 helpers: process/thread enumeration and affinity control.
 use std::collections::HashMap;
+use std::os::windows::process::CommandExt;
 use windows::Win32::Foundation::{CloseHandle, FILETIME, GetLastError};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, Thread32First,
@@ -10,10 +11,12 @@ use windows::Win32::System::SystemInformation::GetSystemInfo;
 use windows::Win32::System::Threading::{
     GetProcessAffinityMask, GetThreadTimes, OpenProcess, OpenThread,
     SetPriorityClass, SetProcessAffinityMask, SetThreadAffinityMask,
-    HIGH_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS,
+    SetThreadPriority, HIGH_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS,
+    BELOW_NORMAL_PRIORITY_CLASS, PROCESS_CREATION_FLAGS,
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION,
     THREAD_QUERY_INFORMATION, THREAD_SET_INFORMATION, THREAD_SUSPEND_RESUME,
-    THREAD_ACCESS_RIGHTS,
+    THREAD_ACCESS_RIGHTS, THREAD_PRIORITY, THREAD_PRIORITY_HIGHEST,
+    THREAD_PRIORITY_NORMAL,
 };
 use windows::Win32::UI::Shell::IsUserAnAdmin;
 
@@ -166,21 +169,50 @@ pub fn set_thread_affinity(tid: u32, mask: u64) -> Result<(), u32> {
     }
 }
 
-pub fn set_priority(pid: u32, high: bool) -> bool {
+pub fn set_priority_class(pid: u32, class: PROCESS_CREATION_FLAGS) -> bool {
     unsafe {
         let h = match OpenProcess(PROCESS_SET_INFORMATION, false, pid) {
             Ok(h) => h,
             Err(_) => return false,
         };
-        let ok = SetPriorityClass(h, if high {
-            HIGH_PRIORITY_CLASS
-        } else {
-            NORMAL_PRIORITY_CLASS
-        })
-        .is_ok();
+        let ok = SetPriorityClass(h, class).is_ok();
         let _ = CloseHandle(h);
         ok
     }
+}
+
+pub fn priority_high() -> PROCESS_CREATION_FLAGS {
+    HIGH_PRIORITY_CLASS
+}
+pub fn priority_normal() -> PROCESS_CREATION_FLAGS {
+    NORMAL_PRIORITY_CLASS
+}
+pub fn priority_below_normal() -> PROCESS_CREATION_FLAGS {
+    BELOW_NORMAL_PRIORITY_CLASS
+}
+
+/// Set a thread's priority level (e.g. Highest for the LoL main thread).
+pub fn set_thread_priority(tid: u32, level: THREAD_PRIORITY) -> bool {
+    unsafe {
+        let h = match OpenThread(
+            THREAD_QUERY_INFORMATION | THREAD_SET_INFORMATION,
+            false,
+            tid,
+        ) {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        let ok = SetThreadPriority(h, level).is_ok();
+        let _ = CloseHandle(h);
+        ok
+    }
+}
+
+pub fn thread_prio_highest() -> THREAD_PRIORITY {
+    THREAD_PRIORITY_HIGHEST
+}
+pub fn thread_prio_normal() -> THREAD_PRIORITY {
+    THREAD_PRIORITY_NORMAL
 }
 
 /// Diagnostic: try opening a thread with various rights and setting
@@ -217,6 +249,16 @@ pub fn probe_thread(tid: u32, mask: u64) -> Vec<String> {
     }
     out
 }
+
+/// Spawn a child process without any console window (no flashing,
+/// no focus steal during gameplay).
+pub(crate) fn silent_cmd(program: &str) -> std::process::Command {
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let mut c = std::process::Command::new(program);
+    c.creation_flags(CREATE_NO_WINDOW);
+    c
+}
+
 pub fn find_process(exe: &str) -> Option<u32> {
     list_processes()
         .into_iter()

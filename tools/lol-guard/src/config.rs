@@ -14,6 +14,65 @@ pub struct CoresConfig {
     pub interval_secs: u64,
     /// Last detected main thread id (stability hysteresis).
     pub last_tid: u32,
+    /// Boost main thread priority to Highest.
+    #[serde(default = "def_true")]
+    pub thread_boost: bool,
+    /// Lower moved background processes to BelowNormal priority.
+    #[serde(default = "def_true")]
+    pub bg_priority: bool,
+    /// Switch power plan to High Performance while LoL runs.
+    #[serde(default = "def_true")]
+    pub power_plan: bool,
+    /// Disable Game DVR / Game Bar capture (HKCU, reversible).
+    #[serde(default = "def_false")]
+    pub game_dvr_off: bool,
+    /// Previously active power scheme GUID (for restore).
+    #[serde(default)]
+    pub power_scheme: Option<String>,
+    /// Session-only: power plan already applied (not saved).
+    #[serde(skip)]
+    pub power_done: bool,
+    /// Session-only: Game DVR already applied (not saved).
+    #[serde(skip)]
+    pub dvr_done: bool,
+    /// Session-only: pid already swept (skip re-pinning).
+    #[serde(skip)]
+    pub swept_pid: u32,
+    /// Session-only: masks used for that sweep (re-pin on change).
+    #[serde(skip)]
+    pub swept_main: u64,
+    /// Session-only: masks used for that sweep (re-pin on change).
+    #[serde(skip)]
+    pub swept_sub: u64,
+}
+
+fn def_true() -> bool {
+    true
+}
+fn def_false() -> bool {
+    false
+}
+
+impl Default for CoresConfig {
+    fn default() -> Self {
+        Self {
+            main: vec![],
+            sub: vec![],
+            buffers: vec![],
+            interval_secs: 45,
+            last_tid: 0,
+            thread_boost: true,
+            bg_priority: true,
+            power_plan: true,
+            game_dvr_off: false,
+            power_scheme: None,
+            power_done: false,
+            dvr_done: false,
+            swept_pid: 0,
+            swept_main: 0,
+            swept_sub: 0,
+        }
+    }
 }
 
 impl CoresConfig {
@@ -25,8 +84,7 @@ impl CoresConfig {
                 main: vec![(lp - 1) as u8],
                 sub: vec![(lp - 3) as u8],
                 buffers: vec![(lp - 2) as u8, (lp - 4) as u8],
-                interval_secs: 45,
-                last_tid: 0,
+                ..Default::default()
             }
         } else {
             // Fallback for tiny machines: split in halves.
@@ -34,9 +92,7 @@ impl CoresConfig {
             Self {
                 main: ((half as u32)..lp).map(|i| i as u8).collect(),
                 sub: (0..half).map(|i| i as u8).collect(),
-                buffers: vec![],
-                interval_secs: 45,
-                last_tid: 0,
+                ..Default::default()
             }
         }
     }

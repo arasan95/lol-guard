@@ -56,7 +56,7 @@ pub fn relaunch_elevated(args: &str) -> bool {
 pub fn register_task() -> Result<String, String> {
     let exe = exe_path();
     let tr = format!("\"{}\" --tray", exe.display());
-    let out = Command::new("schtasks")
+    let out = crate::engine::silent_cmd("schtasks")
         .args([
             "/Create",
             "/TN",
@@ -82,7 +82,7 @@ pub fn register_task() -> Result<String, String> {
 }
 
 pub fn task_status() -> String {
-    let out = Command::new("schtasks")
+    let out = crate::engine::silent_cmd("schtasks")
         .args(["/Query", "/TN", TASK_NAME, "/FO", "LIST"])
         .output();
     match out {
