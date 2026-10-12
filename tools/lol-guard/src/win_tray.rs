@@ -19,6 +19,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::config::CoresConfig;
+use crate::i18n;
 
 const WM_TRAY: u32 = WM_APP + 1;
 
@@ -138,14 +139,15 @@ fn show_menu(hwnd: HWND) {
             let _ = AppendMenuW(menu, f, id as usize, PCWSTR::from_raw(t.as_ptr()));
             // NOTE: `t` must outlive the call only (copied by user32).
         };
-        item("状態を表示", ID_STATUS, false);
-        item("今すぐ最適化", ID_OPTIMIZE, false);
-        item("元に戻す", ID_RESTORE, false);
-        item("設定を開く", ID_SETTINGS, false);
+        let tx = i18n::strings();
+        item(tx.menu_status, ID_STATUS, false);
+        item(tx.menu_optimize, ID_OPTIMIZE, false);
+        item(tx.menu_restore, ID_RESTORE, false);
+        item(tx.menu_settings, ID_SETTINGS, false);
         for (role, title, sel) in [
-            (0u32, "メインコア", &cfg.main),
-            (1u32, "サブコア", &cfg.sub),
-            (2u32, "バッファ", &cfg.buffers),
+            (0u32, tx.role_main, &cfg.main),
+            (1u32, tx.role_sub, &cfg.sub),
+            (2u32, tx.role_buf, &cfg.buffers),
         ] {
             let sub = match CreatePopupMenu() {
                 Ok(m) => m,
@@ -162,11 +164,11 @@ fn show_menu(hwnd: HWND) {
             let t = wide(title);
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, PCWSTR::from_raw(t.as_ptr()));
         }
-        item("自動起動を登録(管理者)", ID_TASKREG, false);
-        item("ログを開く", ID_LOG, false);
+        item(tx.menu_taskreg, ID_TASKREG, false);
+        item(tx.menu_log, ID_LOG, false);
         let sep = wide("");
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::from_raw(sep.as_ptr()));
-        item("終了", ID_QUIT, false);
+        item(tx.menu_quit, ID_QUIT, false);
 
         let mut pt = POINT { x: 0, y: 0 };
         if GetCursorPos(&mut pt).is_err() {

@@ -4,6 +4,7 @@
 mod config;
 mod engine;
 mod guard;
+mod i18n;
 mod settings;
 mod task;
 mod win_tray;
@@ -82,10 +83,7 @@ fn main() {
         "--register-task" => {
             if !engine::is_admin() {
                 if !task::relaunch_elevated("--register-task") {
-                    msgbox(
-                        "LoL Guard",
-                        "昇格に失敗しました。右クリック→管理者として実行してください。",
-                    );
+                    msgbox("LoL Guard", i18n::strings().err_elevate);
                 }
                 return;
             }
@@ -94,7 +92,10 @@ fn main() {
                     log_line(&log_path, &s);
                     msgbox("LoL Guard", &format!("{s}\n{}", task::task_status()));
                 }
-                Err(e) => msgbox("LoL Guard", &format!("登録に失敗: {e}")),
+                Err(e) => msgbox(
+                    "LoL Guard",
+                    &format!("{}{e}", i18n::strings().err_register),
+                ),
             }
             return;
         }
@@ -148,14 +149,14 @@ fn main() {
     let worker = std::thread::spawn(move || {
         let mut cfg = config::CoresConfig::load(&w_cfg_path, lp);
         let _ = cfg.save(&w_cfg_path);
-        let mut last_status = String::from("待機中");
+        let mut last_status = i18n::strings().status_idle.to_string();
         let mut was_running = false;
         let mut last_sweep = Instant::now() - Duration::from_secs(3600);
         log_line(
             &w_log,
             &format!("tray started (LP={lp}, admin={})", engine::is_admin()),
         );
-        win_tray::set_tip("LoL Guard - 待機中");
+        win_tray::set_tip(i18n::strings().tip_idle);
         loop {
             if w_quit.load(Ordering::SeqCst) {
                 break;
@@ -173,19 +174,22 @@ fn main() {
                         win_tray::request_quit();
                         w_quit.store(true, Ordering::SeqCst);
                     }
-                    AppEvent::Status => msgbox("LoL Guard 状態", &last_status),
+                    AppEvent::Status => {
+                        msgbox(i18n::strings().state_title, &last_status)
+                    }
                     AppEvent::Optimize => {
                         let r = guard::sweep(&mut cfg, lp);
                         let _ = cfg.save(&w_cfg_path);
                         for l in &r.lines {
                             log_line(&w_log, l);
                         }
+                        let tx = i18n::strings();
                         last_status = if r.lol_running {
-                            format!("手動適用 main TID {}", r.main_tid)
+                            format!("{} {}", tx.status_manual, r.main_tid)
                         } else {
-                            "LoLが起動していません".to_string()
+                            tx.status_nolol.to_string()
                         };
-                        win_tray::set_tip("LoL Guard - 適用済み");
+                        win_tray::set_tip(tx.tip_applied);
                         msgbox("LoL Guard", &r.lines.join("\n"));
                     }
                     AppEvent::Restore => {
@@ -193,9 +197,10 @@ fn main() {
                         for l in &lines {
                             log_line(&w_log, l);
                         }
-                        last_status = "復元済み".to_string();
-                        win_tray::set_tip("LoL Guard - 復元済み");
-                        msgbox("LoL Guard 復元", &lines.join("\n"));
+                        let tx = i18n::strings();
+                        last_status = tx.status_restored.to_string();
+                        win_tray::set_tip(tx.tip_restored);
+                        msgbox(tx.restored_title, &lines.join("\n"));
                     }
                     AppEvent::OpenSettings => {
                         settings::open(
@@ -208,14 +213,15 @@ fn main() {
                     AppEvent::TaskReg => {
                         if !engine::is_admin() {
                             if !task::relaunch_elevated("--register-task") {
-                                msgbox("LoL Guard", "昇格に失敗しました。");
+                                msgbox("LoL Guard", i18n::strings().err_elevate);
                             }
                         } else {
                             match task::register_task() {
                                 Ok(s) => msgbox("LoL Guard", &s),
-                                Err(e) => {
-                                    msgbox("LoL Guard", &format!("登録に失敗: {e}"))
-                                }
+                                Err(e) => msgbox(
+                                    "LoL Guard",
+                                    &format!("{}{e}", i18n::strings().err_register),
+                                ),
                             }
                         }
                     }
@@ -238,7 +244,10 @@ fn main() {
                             }
                         }
                         if let Some(w) = cfg.sanitize(lp) {
-                            msgbox("LoL Guard", &format!("設定を修正しました: {w}"));
+                            msgbox(
+                                "LoL Guard",
+                                &format!("{}{w}", i18n::strings().err_cfgfix),
+                            );
                         }
                         let _ = cfg.save(&w_cfg_path);
                     }
@@ -256,13 +265,15 @@ fn main() {
                     for l in &r.lines {
                         log_line(&w_log, l);
                     }
-                    last_status = format!("適用中 main TID {}", r.main_tid);
+                    let tx = i18n::strings();
+                    last_status = format!("{} {}", tx.status_running, r.main_tid);
                     if !was_running {
-                        win_tray::set_tip("LoL Guard - 適用中");
+                        win_tray::set_tip(tx.tip_running);
                     }
                 } else {
-                    last_status = "待機中".to_string();
-                    win_tray::set_tip("LoL Guard - 待機中");
+                    let tx = i18n::strings();
+                    last_status = tx.status_idle.to_string();
+                    win_tray::set_tip(tx.tip_idle);
                 }
                 was_running = found;
             }
@@ -275,7 +286,7 @@ fn main() {
         Some(_) => win_tray::pump(),
         None => {
             log_line(&log_path, "tray icon creation failed");
-            msgbox("LoL Guard", "トレイアイコンの作成に失敗しました。");
+            msgbox("LoL Guard", i18n::strings().tray_fail);
         }
     }
     quit.store(true, Ordering::SeqCst);

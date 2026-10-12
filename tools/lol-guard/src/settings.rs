@@ -18,6 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::config::CoresConfig;
 use crate::guard;
+use crate::i18n;
 
 const ID_APPLY: u32 = 101;
 const ID_RESTORE: u32 = 102;
@@ -99,10 +100,11 @@ fn apply_from_dialog(st: &DlgState) -> Result<String, String> {
         last_tid: old.last_tid,
     };
     if let Some(w) = cfg.sanitize(st.lp) {
-        return Err(format!("設定が不正です: {w}"));
+        let tx = i18n::strings();
+        return Err(format!("{}{w}", tx.err_invalid));
     }
     cfg.save(&st.cfg_path)
-        .map_err(|e| format!("保存に失敗: {e}"))?;
+        .map_err(|e| format!("{}{e}", i18n::strings().err_save))?;
     st.dirty.store(true, Ordering::SeqCst);
     Ok(format!(
         "saved main={:?} sub={:?} buf={:?}",
@@ -131,7 +133,7 @@ unsafe extern "system" fn dlg_proc(
                             }
                             unsafe { DestroyWindow(hwnd) };
                         }
-                        Err(e) => msgbox("LoL Guard 設定", &e),
+                        Err(e) => msgbox(i18n::strings().settings_title, &e),
                     }
                 }
             } else if id == ID_RESTORE {
@@ -142,7 +144,7 @@ unsafe extern "system" fn dlg_proc(
                         for x in &lines {
                             log_line(&(*p).log_path, x);
                         }
-                        msgbox("LoL Guard 復元", &lines.join("\n"));
+                        msgbox(i18n::strings().restored_title, &lines.join("\n"));
                     }
                 }
             } else if id == ID_CLOSE {
@@ -193,7 +195,8 @@ pub fn open(cfg_path: PathBuf, log_path: PathBuf, lp: u32, dirty: Arc<AtomicBool
         let (ww, wh) = (372i32, 10 + 3 * block + 52);
         let cx = GetSystemMetrics(SM_CXSCREEN);
         let cy = GetSystemMetrics(SM_CYSCREEN);
-        let title = wide("LoL Guard 設定");
+        let tx = i18n::strings();
+        let title = wide(tx.dlg_title);
         let hwnd = match CreateWindowExW(
             WINDOW_EX_STYLE(0),
             PCWSTR::from_raw(cls.as_ptr()),
@@ -215,7 +218,12 @@ pub fn open(cfg_path: PathBuf, log_path: PathBuf, lp: u32, dirty: Arc<AtomicBool
         let btn_cls = wide("BUTTON");
         let stc_cls = wide("STATIC");
         let mut checks = Vec::new();
-        let roles = [(0u8, "メインコア"), (1u8, "サブコア"), (2u8, "バッファ")];
+        let txt = i18n::strings();
+        let roles = [
+            (0u8, txt.role_main),
+            (1u8, txt.role_sub),
+            (2u8, txt.role_buf),
+        ];
         for (ri, &(role, name)) in roles.iter().enumerate() {
             let y0 = 10 + ri as i32 * block;
             let lb = wide(name);
@@ -285,9 +293,9 @@ pub fn open(cfg_path: PathBuf, log_path: PathBuf, lp: u32, dirty: Arc<AtomicBool
                 None,
             );
         };
-        mkbtn("適用して閉じる", ID_APPLY, 12, WINDOW_STYLE(1));
-        mkbtn("元に戻す", ID_RESTORE, 128, WINDOW_STYLE(0));
-        mkbtn("閉じる", ID_CLOSE, 244, WINDOW_STYLE(0));
+        mkbtn(txt.btn_apply, ID_APPLY, 12, WINDOW_STYLE(1));
+        mkbtn(txt.btn_restore, ID_RESTORE, 128, WINDOW_STYLE(0));
+        mkbtn(txt.btn_close, ID_CLOSE, 244, WINDOW_STYLE(0));
 
         let st = Box::new(DlgState {
             checks,
