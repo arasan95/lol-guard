@@ -1,0 +1,12 @@
+# build outputs
+tools/lol-guard/target/
+# local state & logs (never publish)
+local/
+*.log
+last_main.txt
+cores.json
+guard.log
+# legacy dev scripts (not published; the tool source is tools/lol-guard)
+scripts/legacy/
+# downloaded packages
+*.nupkg

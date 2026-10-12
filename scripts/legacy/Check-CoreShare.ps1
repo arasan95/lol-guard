@@ -21,7 +21,7 @@ foreach ($th in $lol.Threads) {
     }
 }
 $mask = 0
-try { $mask = [int64]$top.ProcessorAffinity } catch { $mask = [int64]$lol.ProcessorAffinity }
+try { $mask = [int64]$top.ProcessorAffinity.ToInt64() } catch { $mask = [int64]$lol.ProcessorAffinity.ToInt64() }
 $cores = Mask-ToCores $mask
 Write-Host ''
 Write-Host ('メインスレッド: TID {0} = {1}% (1コア=100%)' -f $top.Id, [math]::Round($topV,1))
@@ -34,7 +34,7 @@ foreach ($p in (Get-Process)) { try { $s1[$p.Id] = $p.CPU } catch {} }
 Start-Sleep -Seconds 5
 $rows = foreach ($p in (Get-Process)) {
     try {
-        $a = [int64]$p.ProcessorAffinity
+        $a = [int64]$p.ProcessorAffinity.ToInt64()
         $share = $false
         foreach ($c in $cores) { if (($a -band ([int64]1 -shl $c)) -ne 0) { $share = $true; break } }
         if ($share -and $s1.ContainsKey($p.Id)) {

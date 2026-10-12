@@ -39,6 +39,13 @@ $miSweep.Add_Click({
         [Windows.Forms.MessageBox]::Show('LoLが起動していません', 'LoL CoreGuard')
     }
 })
+$miRestore = $menu.Items.Add('元に戻す（通常affinity）')
+$miRestore.Add_Click({
+    $out = & (Join-Path $here 'CoreGuard.ps1') -Restore 2>&1 | Out-String
+    $script:lastStatus = "復元済み ($(Get-Date -Format 'HH:mm:ss'))"
+    "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') restored" | Out-File $logPath -Append -Encoding UTF8
+    [Windows.Forms.MessageBox]::Show($out, 'LoL CoreGuard 復元')
+})
 $miLog = $menu.Items.Add('ログを開く')
 $miLog.Add_Click({
     if (-not (Test-Path $logPath)) { '' | Out-File $logPath -Encoding UTF8 }
