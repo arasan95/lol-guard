@@ -1,5 +1,4 @@
 //! Logon-task registration (highest privileges) + self elevation.
-use std::process::Command;
 use windows::core::PCWSTR;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;

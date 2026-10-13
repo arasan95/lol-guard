@@ -155,8 +155,9 @@ fn main() {
         let _ = cfg.save(&w_cfg_path);
         let mut last_status = i18n::strings().status_idle.to_string();
         let mut was_running = false;
-        let mut last_sweep = Instant::now() - Duration::from_secs(3600);
-    let mut last_bg = Instant::now() - Duration::from_secs(3600);
+        // None = due immediately (avoids Instant underflow on fresh boots).
+        let mut last_sweep: Option<Instant> = None;
+    let mut last_bg: Option<Instant> = None;
     log_line(
         &log_path,
         &format!("tray started (LP={lp}, admin={})", engine::is_admin()),
@@ -188,7 +189,7 @@ fn main() {
                     }
                     AppEvent::Optimize => {
                         let r = guard::sweep(&mut cfg, lp, true);
-                        last_bg = Instant::now();
+                        last_bg = Some(Instant::now());
                         let _ = cfg.save(&w_cfg_path);
                         for l in &r.lines {
                             log_line(&w_log, l);
@@ -268,15 +269,20 @@ fn main() {
             if w_quit.load(Ordering::SeqCst) {
                 break;
             }
-            if last_sweep.elapsed() >= Duration::from_secs(cfg.interval_secs) {
-                last_sweep = Instant::now();
+            let sweep_due = last_sweep
+                .map(|t| t.elapsed() >= Duration::from_secs(cfg.interval_secs))
+                .unwrap_or(true);
+            if sweep_due {
+                last_sweep = Some(Instant::now());
                 let found = engine::find_process("League of Legends.exe").is_some();
                 if found {
                     // Full background sweep at most every ~3 minutes;
                     // LoL pins are skipped when already applied.
-                    let full_bg = last_bg.elapsed() >= Duration::from_secs(180);
+                    let full_bg = last_bg
+                        .map(|t| t.elapsed() >= Duration::from_secs(180))
+                        .unwrap_or(true);
                     if full_bg {
-                        last_bg = Instant::now();
+                        last_bg = Some(Instant::now());
                     }
                     let r = guard::sweep(&mut cfg, lp, full_bg);
                     let _ = cfg.save(&w_cfg_path);
